@@ -26,7 +26,7 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     aliases = {"//stage0": "oak_stage0"},
     # Enable if you want to use kernel hashes
-    # crate_features = ["sev_kernel_hashes"],
+    crate_features = ["sev_kernel_hashes"],
     deps = [
         "//oak_attestation",
         "//oak_core",

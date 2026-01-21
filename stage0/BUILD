@@ -28,7 +28,7 @@ rust_library(
     crate_features = [
         "sev",
         # Enable this if you want to enable kernel hashes
-        # "sev_kernel_hashes",
+        "sev_kernel_hashes",
     ],
     target_compatible_with = any_platform([
         "//:x86_64-none-setting",
