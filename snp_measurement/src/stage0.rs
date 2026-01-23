@@ -17,7 +17,7 @@
 use std::{mem::size_of, path::PathBuf};
 
 use anyhow::Context;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use sha2::{Digest, Sha256};
 use stage0_parsing::Stage0Info;
 use strum::FromRepr;
@@ -98,7 +98,7 @@ impl SnpRomParsing for Stage0Info {
         let metadata_entries_end = sev_metadata_header_start + header.length as usize;
         self.bytes[sev_metadata_header_end..metadata_entries_end]
             .chunks(SEV_METADATA_ENTRY_SIZE)
-            .map(SevMetadataPageInfo::parse)
+            .filter_map(SevMetadataPageInfo::parse)
             .collect()
     }
 
@@ -144,7 +144,7 @@ pub struct SevMetadataPageInfo {
 }
 
 impl SevMetadataPageInfo {
-    fn parse(bytes: &[u8]) -> Self {
+    fn parse(bytes: &[u8]) -> Option<Self> {
         assert!(bytes.len() == SEV_METADATA_ENTRY_SIZE);
         let mut base: u32 = 0;
         base.as_mut_bytes().copy_from_slice(&bytes[0..4]);
@@ -163,11 +163,15 @@ impl SevMetadataPageInfo {
         let mut page_type: u32 = 0;
         page_type.as_mut_bytes().copy_from_slice(&bytes[8..12]);
         trace!("Metadata page entry: base: {}, size: {}, page_type: {}", base, size, page_type);
-        let page_type = SevMetadataPageType::from_repr(page_type)
-            .expect("invalid SEV metadata page type")
-            .into();
+        let page_type = match SevMetadataPageType::from_repr(page_type) {
+            Some(page_type) => page_type.into(),
+            None => {
+                warn!("ignoring unknown SEV metadata page type: {}", page_type);
+                return None;
+            }
+        };
 
-        Self { start_address, page_count, page_type }
+        Some(Self { start_address, page_count, page_type })
     }
 }
 
@@ -181,6 +185,13 @@ enum SevMetadataPageType {
     Unmeasured = 1,
     Secrets = 2,
     Cpuid = 3,
+    /// Memory used for the SEV kernel-hashes table (used by measured direct boot flows).
+    ///
+    /// The SNP measurement calculator does not currently model the contents of this page; we treat
+    /// it as an unmeasured page and only extend the launch measurement with its metadata.
+    ///
+    /// See `SEV_SECTION_KERNEL_HASHES` in `stage0_bin/layout.ld`.
+    KernelHashes = 0x10,
 }
 
 impl From<SevMetadataPageType> for PageType {
@@ -190,6 +201,7 @@ impl From<SevMetadataPageType> for PageType {
             SevMetadataPageType::Cpuid => PageType::Cpuid,
             SevMetadataPageType::Secrets => PageType::Secrets,
             SevMetadataPageType::Unmeasured => PageType::Unmeasured,
+            SevMetadataPageType::KernelHashes => PageType::Unmeasured,
         }
     }
 }
